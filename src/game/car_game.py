@@ -10,6 +10,7 @@ import sys
 import random
 import math
 from panda3d.core import getModelPath
+import os
 
 # Configure Panda3D window
 loadPrcFileData("", """
@@ -20,12 +21,13 @@ loadPrcFileData("", """
     show-frame-rate-meter 1
 """)
 
+# Add project root to model path
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+getModelPath().appendDirectory(project_root)
+
 class RacingGame(ShowBase):
     def __init__(self):
         super().__init__()
-        # Add models directory to model path
-        model_path = getModelPath()
-        model_path.appendDirectory("/Users/manuelfidalgo/Documents/projects/reinforcement-learning-game/models")
         
         # Disable mouse control of the camera
         self.disableMouse()
@@ -75,7 +77,7 @@ class RacingGame(ShowBase):
 
     def setupCar(self):
         # Load the car model from the existing file
-        self.car = loader.loadModel("/Users/manuelfidalgo/Documents/projects/reinforcement-learning-game/models/Car/Car.egg")
+        self.car = loader.loadModel("assets/3d_models/Car/Car.egg")
         self.car.reparentTo(render)
         self.car.setScale(0.3)  # Make the car smaller
         self.car.setPos(0, 0, 0.6)  # Lift higher above ground
@@ -103,7 +105,7 @@ class RacingGame(ShowBase):
         # Keep 200 obstacles to make the game more challenging
         for i in range(200):  
             # Load the cube model
-            obstacle = loader.loadModel("/Users/manuelfidalgo/Documents/projects/reinforcement-learning-game/models/Cube.egg")
+            obstacle = loader.loadModel("assets/3d_models/Cube.egg")
             obstacle.reparentTo(render)
             
             # Scale the cube to desired size
