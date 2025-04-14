@@ -1,120 +1,113 @@
-import random
-import time
 import os
+import random
+import argparse
+from screenshot import get_game_state_image
+import numpy as np
+from datetime import datetime
+import multiprocessing as mp
 from pathlib import Path
-from car_game import RacingGame
-from screenshot import get_game_state_image, get_compressed_state
-from PIL import Image
+from panda3d.core import loadPrcFileData
 
-class DataCollector:
-    def __init__(self, output_dir="data/screenshots"):
-        """
-        Initialize the data collector.
+
+# Print the module name
+print(f"Current module name: {__name__}")
+
+def run_game_instance(instance_id, output_dir, num_samples, x_pos, y_pos, win_size_x=128*2, win_size_y=128):
+    """
+    Run a single game instance in a separate process.
+    """
+    print(f"Instance {instance_id}: Creating game.")
+    try:
+        # Create unique output directory for this instance
+        instance_dir = Path(output_dir) / f"instance_{instance_id}"
+        instance_dir.mkdir(parents=True, exist_ok=True)
         
-        Args:
-            output_dir: Directory to save screenshots
-        """
-        self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+        # Create the game
+        from car_game import RacingGame
+        loadPrcFileData("", f"""
+        window-title Racing Game {instance_id}
+        win-origin {x_pos} {y_pos}
+        win-size {win_size_x} {win_size_y}
+        framebuffer-multisample 1
+        multisamples 2
+        show-frame-rate-meter 1
+        """)
+        # Import needs to be here to avoid the game being launched during import time.
+        game = RacingGame()
         
-        # Define possible actions
-        self.actions = {
-            "forward": False,
-            "reverse": False,
-            "left": False,
-            "right": False
-        }
         
-        # Game parameters
-        self.screenshot_interval = 0.1  # Take screenshot every 0.1 seconds
-        self.min_action_duration = 0.5  # Minimum time to hold an action
-        self.max_action_duration = 2.0  # Maximum time to hold an action
-        
-    def random_action(self):
-        """Generate a random action for the car."""
-        # Reset all actions
-        for key in self.actions:
-            self.actions[key] = False
+        # Collect data
+        for i in range(num_samples):
+            print(f"Instance {instance_id}: Starting simulation {i} of {num_samples}")
+            # Generate random controls
+            acceleration = random.choice([1])
+            turning = random.choice([-1, 0, 1])
             
-        # Randomly choose one or two actions
-        num_actions = random.randint(1, 2)
-        chosen_actions = random.sample(list(self.actions.keys()), num_actions)
-        
-        for action in chosen_actions:
-            self.actions[action] = True
+            # Set the controls
+            game.setControl("acceleration", acceleration)
+            game.setControl("turning", turning)
             
-        return self.actions
+
+            # Run one frame of the game
+            game.taskMgr.step()
     
-    def collect_data(self, num_episodes=10):
-        """
-        Collect data by running the game multiple times.
+            # Take a screenshot
+            image = get_game_state_image(game)
+            
+            # Save the screenshot
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            filename = f"sample_{instance_id}_{timestamp}.npy"
+            filepath = instance_dir / filename
+            
+            # Save as numpy array
+            np.save(filepath, image)
+            
+            print(f"Instance {instance_id}: Saved sample {i+1}/{num_samples} to {filepath}")
+            
+            # Run one frame of the game
+            game.taskMgr.step()
         
-        Args:
-            num_episodes: Number of game episodes to run
-        """
-        print("Running episode.")
-        for episode in range(num_episodes):
-            print(f"Starting episode {episode + 1}/{num_episodes}")
-            
-            # Create game instance
-            game = RacingGame()
-            
-            # Create episode directory
-            episode_dir = self.output_dir / f"episode_{episode}"
-            episode_dir.mkdir(exist_ok=True)
-            
-            frame_count = 0
-            last_screenshot_time = 0
-            last_action_time = time.time()
-            current_action_duration = random.uniform(self.min_action_duration, self.max_action_duration)
-            current_actions = self.random_action()
-            
-            while not game.isGameOver:
-                current_time = time.time()
-                
-                # Take screenshot at regular intervals
-                if current_time - last_screenshot_time >= self.screenshot_interval:
-                    # Get game state image
-                    img_array = get_game_state_image(game)
-                    
-                    # Save screenshot
-                    screenshot_path = episode_dir / f"frame_{frame_count:06d}.jpg"
-                    img = Image.fromarray(img_array)
-                    img.save(screenshot_path, quality=85)
-                    
-                    frame_count += 1
-                    last_screenshot_time = current_time
-                
-                # Update actions if duration has passed
-                if current_time - last_action_time >= current_action_duration:
-                    current_actions = self.random_action()
-                    current_action_duration = random.uniform(self.min_action_duration, self.max_action_duration)
-                    last_action_time = current_time
-                
-                # Apply current actions to the game
-                game.keyMap = current_actions
-                
-                # Run one frame of the game
-                game.taskMgr.step()
-                
-                # Small delay to prevent the game from running too fast
-                time.sleep(0.01)
-            
-            print(f"Episode {episode + 1} completed. Collected {frame_count} frames.")
+        print(f"Instance {instance_id}: Data collection complete!")
+    
+    finally:
+        # Clean up the game instance
+        if 'game' in locals():
             game.destroy()
-            
-        print(f"Data collection completed. Total episodes: {num_episodes}")
+            print(f"Instance {instance_id}: Game instance cleaned up")
+
+def collect_data(output_dir="collected_data", num_samples=100, num_instances=2):
+    """
+    Collect data using multiple game instances running in parallel.
+    """
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Create processes for each game instance
+    processes = []
+    x_pos = 128*2
+    y_pos = 128
+    for i in range(num_instances):
+
+        p = mp.Process(target=run_game_instance, 
+                      args=(i, output_dir, num_samples, (x_pos*i)%3456, (y_pos*i)%2234))
+        processes.append(p)
+        p.start()
+    
+    # Wait for all processes to complete
+    for p in processes:
+        p.join()
+    
+    print(f"\nAll instances completed! Data saved to {output_dir}")
 
 if __name__ == "__main__":
-    import argparse
-    
-    parser = argparse.ArgumentParser(description="Collect game data for VAE training")
-    parser.add_argument("--episodes", type=int, default=10,
-                       help="Number of episodes to run")
-    parser.add_argument("--output", type=str, default="data/screenshots",
-                       help="Output directory for screenshots")
+    parser = argparse.ArgumentParser(description="Collect data from the racing game")
+    parser.add_argument("--output_dir", type=str, default="collected_data",
+                        help="Directory to save collected data")
+    parser.add_argument("--samples", type=int, default=100,
+                        help="Number of samples to collect per instance")
+    parser.add_argument("--instances", type=int, default=2,
+                        help="Number of game instances to run in parallel")
     
     args = parser.parse_args()
-    
-    collector = DataCollector(output_dir=args.output)
-    collector.collect_data(num_episodes=args.episodes) 
+    print(f"Running game instances...{args}")
+    collect_data(args.output_dir, args.samples, args.instances) 

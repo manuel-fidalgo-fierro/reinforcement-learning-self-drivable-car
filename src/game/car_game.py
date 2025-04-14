@@ -12,14 +12,7 @@ import math
 from panda3d.core import getModelPath
 import os
 
-# Configure Panda3D window
-loadPrcFileData("", """
-    window-title Racing Game
-    win-size 1280 720
-    framebuffer-multisample 1
-    multisamples 2
-    show-frame-rate-meter 1
-""")
+
 
 # Add project root to model path
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -327,23 +320,20 @@ class RacingGame(ShowBase):
         
         return Task.cont
 
-    def setup(self):
-        """Setup the game without running it"""
-        self.setupWorld()
-        self.setupLighting()
-        self.setupCar()
-        self.setupCamera()
-        self.createObstacles()
-        self.createFinishLine()
-        self.setupCollisionDetection()
-        self.setupControls()
-        self.startTime = globalClock.getFrameTime()
-        self._last_distance = self._get_distance_to_finish()
-
     def _get_distance_to_finish(self):
         """Calculate distance to finish line"""
         return abs(2000 - self.carPos.y)
 
-# Create and run the game
-game = RacingGame()
-game.run() 
+if __name__ == "__main__":
+    print(f"Running game from {__file__}")
+    # Configure Panda3D window
+    loadPrcFileData("", """
+        window-title Racing Game
+        win-size 1280 720
+        framebuffer-multisample 1
+        multisamples 2
+        show-frame-rate-meter 1
+    """)
+    # Create and run the game
+    game = RacingGame()
+    game.run() 

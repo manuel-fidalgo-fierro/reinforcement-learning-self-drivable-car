@@ -1,5 +1,5 @@
-from panda3d.core import WindowProperties, PNMImage
 import numpy as np
+from panda3d.core import PNMImage, GraphicsOutput, GraphicsPipe, WindowProperties
 from PIL import Image
 import io
 
@@ -11,48 +11,52 @@ def get_game_state_image(base):
         base: The ShowBase instance of the game
         
     Returns:
-        numpy.ndarray: The current game view as a numpy array in RGB format
+        numpy.ndarray: The captured image as a numpy array
     """
-    # Get window properties
+    # Get the window properties
     win = base.win
     props = WindowProperties()
     props.setSize(win.getXSize(), win.getYSize())
     
-    # Create a PNMImage to store the screenshot
+    # Create a buffer to store the screenshot
     buffer = PNMImage()
-    base.graphicsEngine.renderFrame()
-    base.graphicsEngine.extractTextureData(win.getScreenshot(), buffer)
+    win.getScreenshot(buffer)
     
-    # Convert to numpy array
-    img_array = np.frombuffer(buffer.getData(), dtype=np.uint8)
-    img_array = img_array.reshape((buffer.getYSize(), buffer.getXSize(), 3))
+    # Create numpy array from the image data
+    width = buffer.getXSize()
+    height = buffer.getYSize()
     
-    # Convert from BGR to RGB
-    img_array = img_array[..., ::-1]
+    # Initialize a numpy array to store the image data
+    image = np.zeros((height, width, 3), dtype=np.uint8)
     
-    return img_array
+    # Copy pixel data manually
+    for y in range(height):
+        for x in range(width):
+            r = int(buffer.getBlue(x, y) * 255)  # Panda3D uses BGR
+            g = int(buffer.getGreen(x, y) * 255)
+            b = int(buffer.getRed(x, y) * 255)
+            image[y, x] = [r, g, b]
+    
+    return image
 
 def get_compressed_state(base, quality=85):
     """
     Get the current game state as compressed JPEG bytes.
-    This is useful for efficient storage of game states.
     
     Args:
         base: The ShowBase instance of the game
         quality: JPEG compression quality (0-100)
         
     Returns:
-        bytes: Compressed JPEG data of the current game state
+        bytes: Compressed JPEG data
     """
-    # Get the image array
-    img_array = get_game_state_image(base)
+    # Get the image as numpy array
+    image = get_game_state_image(base)
     
     # Convert to PIL Image
-    img = Image.fromarray(img_array)
+    pil_image = Image.fromarray(image)
     
     # Compress to JPEG
-    img_byte_arr = io.BytesIO()
-    img.save(img_byte_arr, format='JPEG', quality=quality)
-    img_byte_arr = img_byte_arr.getvalue()
-    
-    return img_byte_arr 
+    output = io.BytesIO()
+    pil_image.save(output, format='JPEG', quality=quality)
+    return output.getvalue() 
