@@ -27,6 +27,7 @@ def load_and_display_images(image_files, num_images=5, save_path=None):
     for ax, file_path in zip(axes, selected_files):
         # Load image
         image = np.load(file_path)
+        image = image[:, :, ::-1] # Convert BGR to RGB
         H, W, C = image.shape
         # Display image
         ax.imshow(image)
@@ -114,7 +115,7 @@ def analyze_image_statistics(image_files, sample_size=10):
 
 def main():
     parser = argparse.ArgumentParser(description='Visualize collected game data')
-    parser.add_argument('--data_dir', type=str, default='collected_data',
+    parser.add_argument('--data_dir', type=str, default='data',
                         help='Directory containing collected images')
     parser.add_argument('--num_images', type=int, default=5,
                         help='Number of images to display')

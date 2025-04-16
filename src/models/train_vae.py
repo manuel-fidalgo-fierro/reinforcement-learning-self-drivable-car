@@ -15,7 +15,7 @@ from vae import VAE
 class ImageDataset(Dataset):
     def __init__(self, data_dir):
         """
-        Dataset for loading images from the collected_data directory.
+        Dataset for loading images from the data directory.
         
         Args:
             data_dir: Path to the directory containing .npy files
@@ -27,18 +27,20 @@ class ImageDataset(Dataset):
         return len(self.image_files)
     
     def __getitem__(self, idx):
-        # Load the numpy array
-        image = np.load(self.image_files[idx])
+        """
+            Reshape from (H, W, C) to (C, H, W) format
+            Dimension at index 2 in the original tensor (the channels) becomes the first dimension.
+            Dimension at index 0 (height) becomes the second.
+            Dimension at index 1 (width) becomes the third.
+        """
+        # Image will be (128, 256, 3) but color channel is BGR
+        image = np.load(self.image_files[idx], allow_pickle=True)
+        image = image[:, :, ::-1] # Convert BGR to RGB
         
         # Convert to tensor and normalize to [0, 1]
         image = torch.from_numpy(image).float() / 255.0
-        
-        """
-        Reshape from (H, W, C) to (C, H, W) format
-        Dimension at index 2 in the original tensor (the channels) becomes the first dimension.
-        Dimension at index 0 (height) becomes the second.
-        Dimension at index 1 (width) becomes the third.
-        """
+
+        # Reshape from (H, W, C) to (C, H, W) format
         image = image.permute(2, 0, 1)
         
         return image
@@ -67,7 +69,7 @@ def train_vae(data_dir, output_dir, num_epochs=50, batch_size=32, learning_rate=
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
     
     # Initialize model
-    model = VAE(latent_dim=32).to(device)
+    model = VAE(latent_dim=128).to(device)
     
     # Initialize optimizer
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
@@ -87,12 +89,8 @@ def train_vae(data_dir, output_dir, num_epochs=50, batch_size=32, learning_rate=
             # Forward pass
             reconstructed_images, mu, log_var = model(images)
 
-            print(f"Reconstructed images shape: {reconstructed_images.shape}")
-            print(f"Original images shape: {images.shape}")
-
-
             # Calculate loss
-            loss = model.loss_function(reconstructed_images, images, mu, log_var)
+            loss, _, _  = model.mse_loss(reconstructed_images, images, mu, log_var)
             
             # Backward pass
             optimizer.zero_grad()
@@ -127,7 +125,7 @@ if __name__ == '__main__':
     import argparse
     
     parser = argparse.ArgumentParser(description='Train VAE on collected images')
-    parser.add_argument('--data_dir', type=str, default='collected_data',
+    parser.add_argument('--data_dir', type=str, default='data',
                         help='Directory containing collected images')
     parser.add_argument('--output_dir', type=str, default='models/vae',
                         help='Directory to save trained model')

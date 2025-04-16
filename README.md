@@ -21,12 +21,26 @@ source venv/bin/activate  # On Windows, use: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-## Running the Game
+## Running the Game.
 
 To start the game, run:
 ```bash
 python src/car_game.py
 ```
+
+Run N simulations for collecting samples (screenshots) of the game.
+```bash
+python src/game/data_collector.py --samples 200 --instances 10
+```
+
+Visualize some of the images taken during data collector.
+```bash
+python src/utils/visualize_data.py --num_images 5
+```
+
+![Simulation Screenshot](assets/images/simulation_screenshots.png)
+
+*Example of the game environment with obstacles and the car in action.*
 
 ## Controls
 
@@ -44,6 +58,7 @@ python src/car_game.py
 - Collision detection
 - Third-person camera view
 - Explosion effect on collision
+
 
 ## Note
 

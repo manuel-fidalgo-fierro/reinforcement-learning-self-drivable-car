@@ -10,7 +10,7 @@ class VAE(nn.Module):
     We can sample from this distribution to produce a latent vector z that represents
     the current state. This is passed on to the next part of the network, the MDN-RNN.
     """
-    def __init__(self, latent_dim=32, input_channels=3, input_height=128, input_width=256):
+    def __init__(self, latent_dim=128, input_channels=3, input_height=128, input_width=256):
         super(VAE, self).__init__()
         
         # Store input dimensions
@@ -140,26 +140,59 @@ class VAE(nn.Module):
         x_recon = self.decode(z)
         return x_recon, mu, log_var
     
-    def loss_function(self, x_recon, x, mu, log_var):
+    def mse_loss(self, reconstructed_images, original_images, mu, log_var):
         """
         Calculate the VAE loss.
         
         Args:
-            x_recon: Reconstructed image
-            x: Original image
+            reconstructed_images: Reconstructed images
+            original_images: Original images
             mu: Mean of the latent distribution
             log_var: Log variance of the latent distribution
             
         Returns:
             loss: Total VAE loss
         """
-        # Reconstruction loss (MSE)
-        recon_loss = F.mse_loss(x_recon, x, reduction='sum')
+        # Reconstruction loss (MSE) - mean over batch and pixels
+        recon_loss = F.mse_loss(reconstructed_images, original_images, reduction='sum')
         
-        # KL divergence
+        # KL divergence - mean over batch
         kl_loss = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp())
         
-        # Total loss
+        # Total loss with weighted KL term
         total_loss = recon_loss + kl_loss
         
-        return total_loss 
+        return total_loss, recon_loss, kl_loss 
+    
+    
+
+    def binary_cross_entropy_loss(self, reconstructed_images, original_images, mu, log_var):
+        """
+        Compute the loss for a Variational Autoencoder (VAE) for image prediction.
+        
+        The loss is a combination of:
+        1. Reconstruction loss (BCE or MSE loss)
+        2. KL divergence loss for the latent space
+        
+        Args:
+            reconstructed_image (Tensor): Reconstructed image from the decoder, expected to be in the range [0, 1].
+            original_image (Tensor): Original image, also in the range [0, 1].
+            mu (Tensor): The mean of the latent Gaussian distribution.
+            log_var (Tensor): The log variance of the latent Gaussian distribution.
+
+        Returns:
+            loss (Tensor): The total loss (scalar tensor).
+        """
+        # Reconstruction loss: using binary cross-entropy loss
+        # Set reduction='sum' if you want to sum over all pixels; you could also use 'mean'
+        bce_loss = F.binary_cross_entropy(reconstructed_images, original_images, reduction='mean')
+                
+        
+        # KL divergence loss: using the analytical form for Gaussian distributions
+        # KL divergence for each element in the batch (summed over the latent dimensions)
+        kl_loss = -0.5 * torch.mean(1 + log_var - mu.pow(2) - log_var.exp())
+        
+        # Total loss is a sum of both components
+        total_loss = bce_loss + kl_loss
+        
+        return total_loss
