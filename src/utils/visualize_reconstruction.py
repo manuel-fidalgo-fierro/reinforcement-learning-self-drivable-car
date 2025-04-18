@@ -15,7 +15,7 @@ if src_path not in sys.path:
     sys.path.append(src_path)
 
 from models.vae import VAE
-from models.utils import get_device_name as get_device
+from models.device import get_device_name as get_device
 
 def load_random_images(data_dir='data', num_images=3):
     """Load multiple random images from the collected data directory."""
