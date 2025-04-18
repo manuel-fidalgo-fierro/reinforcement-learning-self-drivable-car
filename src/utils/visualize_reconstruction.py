@@ -37,6 +37,7 @@ def load_random_images(data_dir='data', num_images=3):
         # Load and preprocess the image
         # Image will be (128, 256, 3) but color channel is BGR
         img_array = np.load(img_path)
+        img_array = img_array[:, :, ::-1].copy() # Convert to rgb
         img_array = np.array(img_array) / 255.0  # Normalize to [0, 1]
         
         # Convert to tensor and reshape to CHW

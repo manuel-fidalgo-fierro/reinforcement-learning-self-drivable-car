@@ -35,7 +35,7 @@ class ImageDataset(Dataset):
         """
         # Image will be (128, 256, 3) but color channel is BGR
         image = np.load(self.image_files[idx], allow_pickle=True)
-        image = image[:, :, ::-1] # Convert BGR to RGB
+        image = image[:, :, ::-1].copy() # Convert BGR to RGB
         
         # Convert to tensor and normalize to [0, 1]
         image = torch.from_numpy(image).float() / 255.0
@@ -45,7 +45,7 @@ class ImageDataset(Dataset):
         
         return image
 
-def train_vae(data_dir, output_dir, num_epochs=50, batch_size=32, learning_rate=1e-3):
+def train_vae(data_dir, output_dir, num_epochs=50, batch_size=32, learning_rate=1e-5, weight_decay=1e-5, form_checkpoint=None):
     """
     Train the VAE model on the collected images.
     
@@ -69,10 +69,16 @@ def train_vae(data_dir, output_dir, num_epochs=50, batch_size=32, learning_rate=
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
     
     # Initialize model
-    model = VAE(latent_dim=128).to(device)
+    if form_checkpoint:
+        model = VAE(latent_dim=128).to(device)
+        model.load_state_dict(torch.load(form_checkpoint))
+        print(f"Loaded model from {form_checkpoint}")
+    else:
+        model = VAE(latent_dim=128).to(device)
+        print("Initialized new model")
     
-    # Initialize optimizer
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    # Initialize optimizer with weight decay
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     
     # Training loop
     for epoch in range(num_epochs):
@@ -95,6 +101,10 @@ def train_vae(data_dir, output_dir, num_epochs=50, batch_size=32, learning_rate=
             # Backward pass
             optimizer.zero_grad()
             loss.backward()
+            
+            # Gradient clipping
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            
             optimizer.step()
             
             # Update progress bar
@@ -131,11 +141,14 @@ if __name__ == '__main__':
                         help='Directory to save trained model')
     parser.add_argument('--epochs', type=int, default=50,
                         help='Number of training epochs')
-    parser.add_argument('--batch_size', type=int, default=32,
+    parser.add_argument('--batch_size', type=int, default=2048,
                         help='Batch size for training')
-    parser.add_argument('--learning_rate', type=float, default=1e-3,
+    parser.add_argument('--learning_rate', type=float, default=1e-5,
                         help='Learning rate for optimizer')
-    
+    parser.add_argument('--weight_decay', type=float, default=1e-5,
+                        help='Weight decay for optimizer')
+    parser.add_argument("--form-checkpoint", type=str, default=None,
+                        help="Path to checkpoint to resume training from")
     args = parser.parse_args()
     
     train_vae(
@@ -143,5 +156,7 @@ if __name__ == '__main__':
         output_dir=args.output_dir,
         num_epochs=args.epochs,
         batch_size=args.batch_size,
-        learning_rate=args.learning_rate
+        learning_rate=args.learning_rate,
+        weight_decay=args.weight_decay,
+        form_checkpoint=args.form_checkpoint,
     ) 
