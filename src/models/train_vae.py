@@ -6,7 +6,7 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from pathlib import Path
 from tqdm import tqdm
-from utils import get_device_name
+from src.models.device import get_device_name
 import sys
 
 

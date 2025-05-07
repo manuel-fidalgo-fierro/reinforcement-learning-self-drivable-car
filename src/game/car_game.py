@@ -41,6 +41,7 @@ class RacingGame(ShowBase):
         # Game state
         self.gameStartTime = globalClock.getRealTime()
         self.isGameOver = False
+        self.isGameWon = False
         
         # Start the game loop
         self.taskMgr.add(self.update, "update")
@@ -253,8 +254,25 @@ class RacingGame(ShowBase):
                 self.isGameOver = True
                 return True
             entries.append(entry)
-        return len(entries) > 0
 
+        if len(entries) > 0:
+            self.isGameWon = True
+            return True
+        return False
+    
+    def get_reward(self):
+        """
+            Calculate reward based on distance to finish line
+            If the game is over, return -100
+            If the game is won, return 1_000_000
+            Otherwise, return the distance to the finish line
+        """
+        if self.isGameOver:
+            return -100
+        if self.isGameWon:
+            return 1_000_000
+        return self.carPos.y
+    
     def update(self, task):
         if self.isGameOver:
             return Task.done
@@ -318,11 +336,10 @@ class RacingGame(ShowBase):
             self.isGameOver = True
             return Task.done
         
-        return Task.cont
+        #print(f"Reward: {self.get_reward()}")
 
-    def _get_distance_to_finish(self):
-        """Calculate distance to finish line"""
-        return abs(2000 - self.carPos.y)
+        return Task.cont
+        
 
 if __name__ == "__main__":
     print(f"Running game from {__file__}")

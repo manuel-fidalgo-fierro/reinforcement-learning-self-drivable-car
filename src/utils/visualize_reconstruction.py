@@ -48,26 +48,13 @@ def load_random_images(data_dir='data', num_images=3):
     
     return images_tensor, images_array
 
-def load_vae_model(model_path='models/vae/vae_final.pt'):
-    """Load the trained VAE model."""
-    device = get_device()
-    print(f"Using device: {device}")
-    
-    # Initialize model with latent_dim=128 to match the saved model
-    model = VAE(latent_dim=128).to(device)
-    
-    # Load weights
-    model.load_state_dict(torch.load(model_path, map_location=device))
-    model.eval()
-    
-    return model, device
 
 def visualize_reconstructions(num_images=5):
     # Load random images
     img_tensors, img_arrays = load_random_images(num_images=num_images)
     
     # Load VAE model
-    model, device = load_vae_model()
+    model, device = VAE.load_vae_model()
     
     # Create figure with subplots
     fig, axes = plt.subplots(num_images, 2, figsize=(12, 3*num_images))

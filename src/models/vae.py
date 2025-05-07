@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from models.device import get_device_name
+
 
 class VAE(nn.Module):
     """
@@ -196,3 +198,18 @@ class VAE(nn.Module):
         total_loss = bce_loss + kl_loss
         
         return total_loss
+    
+    @staticmethod
+    def load_vae_model(model_path='models/vae/vae_final.pt', latent_dim=128):
+        """Load the trained VAE model."""
+        device = get_device_name()
+        print(f"Using device: {device}")
+    
+        # Initialize model with latent_dim=128 to match the saved model
+        model = VAE(latent_dim=latent_dim).to(device)
+    
+        # Load weights
+        model.load_state_dict(torch.load(model_path, map_location=device))
+        model.eval()
+    
+        return model, device
