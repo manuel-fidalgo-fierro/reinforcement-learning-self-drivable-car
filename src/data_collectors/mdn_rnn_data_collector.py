@@ -76,6 +76,7 @@ def run_game_instance(instance_id, output_dir, num_samples, x_pos, y_pos, win_si
             
             # save the latent vector, reward, and controls as a single numpy array
             data = np.concatenate([z, acceleration, turning, reward]) # 128 + 1 + 1 + 1 = 131
+            print(data.shape)
             data_file = instance_dir / f"data_{instance_id}_{i}.npy"
             np.save(data_file, data)
 

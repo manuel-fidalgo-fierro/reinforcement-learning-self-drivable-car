@@ -8,6 +8,9 @@ from pathlib import Path
 from tqdm import tqdm
 from models.device import get_device_name
 import sys
+import torch.nn.functional as F
+import math
+
 
 from mdn_rnn import MDNRNN
 
@@ -33,7 +36,12 @@ class MDNRNDataset(Dataset):
         Load and preprocess a single data point.
         
         Returns:
-            data: Tensor containing concatenated [z, reward, action]
+            data: Tensor containing concatenated [z, reward, action_forward, action_left_right]
+                 Shape: [131] where:
+                 - z: 128 dimensions
+                 - reward: 1 dimension
+                 - action_forward: 1 dimension
+                 - action_left_right: 1 dimension
         """
         # Load data
         data = np.load(self.data_files[idx])
@@ -43,34 +51,75 @@ class MDNRNDataset(Dataset):
         
         return data
 
-def mdn_loss(mdn_params, target_z, num_mixtures=5):
+def mdn_loss(mdn_params, batch, num_mixtures=5, z_dim=128, eps=1e-8):
     """
-    Calculate the MDN loss.
-    
-    Args:
-        mdn_params: Output from the MDN layer
-        target_z: Target latent vector
-        num_mixtures: Number of mixture components
-        
-    Returns:
-        loss: Negative log likelihood loss
-    """
-    # Get mixture parameters
-    pi, mu, sigma = MDNRNN.get_mixture_params(mdn_params)
-    
-    # Calculate negative log likelihood
-    target_z = target_z.unsqueeze(2).expand_as(mu)
-    z_dist = torch.distributions.Normal(mu, sigma)
-    log_prob = z_dist.log_prob(target_z)
-    log_prob = log_prob.sum(dim=-1)  # Sum over dimensions
-    log_prob = log_prob + torch.log(pi)
-    log_prob = torch.logsumexp(log_prob, dim=-1)  # Sum over mixtures
-    loss = -log_prob.mean()
-    
-    return loss
+    MDN loss (NLL) for a per-dimension mixture of Gaussians.
+    Thanks ChatGPT for the implementation.
 
-def train_mdn_rnn(data_dir, output_dir, num_epochs=50, batch_size=32, learning_rate=1e-4, 
-                 weight_decay=1e-5, sequence_length=16, from_checkpoint=None):
+    Args:
+        mdn_params: Tensor, shape (B, M*3*D) where:
+                    - B: batch size
+                    - M: number of mixtures
+                    - D: dimensionality of latent z
+        batch:      Tensor, shape (B, D+1+action_dims)
+                    we'll take the first D entries as the target z.
+        num_mixtures: int, number of mixture components (K).
+        z_dim:        int, dimensionality of latent z (D).
+        eps:        float, numerical stabilizer.
+
+    Returns:
+        loss: scalar Tensor, average NLL over batch.
+    """
+    B = mdn_params.size(0)
+    K, D = num_mixtures, z_dim
+
+    # Pull out target z, shape (B, D)
+    z_target = batch[:, :D]
+
+    # split mdn_params into (pi, mu, log_sigma) each of length K*D along the last axis
+    param_per_mixture = D * K
+    pi_flat     = mdn_params[:, :           param_per_mixture]
+    mu_flat     = mdn_params[:, param_per_mixture:2*param_per_mixture]
+    log_sigma_flat = mdn_params[:, 2*param_per_mixture:3*param_per_mixture]
+
+    # reshape to (B, D, K)
+    pi_logits    = pi_flat.view(B, D, K)
+    mu           = mu_flat.view(B, D, K)
+    log_sigma    = log_sigma_flat.view(B, D, K)
+
+    # Build actual pi (mixture weights) and sigma
+    pi    = F.softmax(pi_logits, dim=-1)       # (B, D, K)
+    sigma = torch.exp(log_sigma).clamp_min(eps)  # (B, D, K)
+
+    # Compute log-prob of z_target under each Gaussian component expand target from (B,D) → (B,D,1)
+    z_exp = z_target.unsqueeze(-1)
+
+    # exponent:   -0.5 * ((z - μ)/σ)^2
+    exponent = -0.5 * ((z_exp - mu) / sigma) ** 2
+
+    # norm term: -log(σ) - 0.5*log(2π)
+    log_norm = -torch.log(sigma) - 0.5 * math.log(2 * math.pi)
+
+    # component log-lik across dims: sum over the D dims but we'll sum dims later—first keep shape (B,D,K)
+    comp_log = exponent + log_norm
+
+    # add mixture‐weight log π
+    log_pi = torch.log(pi + eps)
+    comp_log = comp_log + log_pi
+
+    # log-sum-exp over K mixtures → (B, D)
+    log_prob_per_dim = torch.logsumexp(comp_log, dim=-1)
+
+    # sum across latent dimensions → (B,)
+    log_prob = log_prob_per_dim.sum(dim=-1)
+
+    # negative log-likelihood and average
+    nll = -log_prob
+    return nll.mean()
+
+
+def train_mdn_rnn(data_dir, output_dir, num_epochs=50, batch_size=2048, learning_rate=1e-4, 
+                 weight_decay=1e-5, from_checkpoint=None, input_size=131, hidden_state_size=256, num_mixtures=5, z_dim=128):
     """
     Train the MDN-RNN model on the collected data.
     
@@ -81,7 +130,6 @@ def train_mdn_rnn(data_dir, output_dir, num_epochs=50, batch_size=32, learning_r
         batch_size: Batch size for training
         learning_rate: Learning rate for the optimizer
         weight_decay: Weight decay for the optimizer
-        sequence_length: Length of sequences for training
         from_checkpoint: Path to checkpoint to resume training from
     """
     # Create output directory
@@ -97,12 +145,11 @@ def train_mdn_rnn(data_dir, output_dir, num_epochs=50, batch_size=32, learning_r
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
     
     # Initialize model
+    model = MDNRNN(input_size=input_size, hidden_state_size=hidden_state_size, num_mixtures=num_mixtures, z_dim=z_dim).to(device)
     if from_checkpoint:
-        model = MDNRNN().to(device)
         model.load_state_dict(torch.load(from_checkpoint))
         print(f"Loaded model from {from_checkpoint}")
     else:
-        model = MDNRNN().to(device)
         print("Initialized new model")
     
     # Initialize optimizer
@@ -117,31 +164,20 @@ def train_mdn_rnn(data_dir, output_dir, num_epochs=50, batch_size=32, learning_r
         pbar = tqdm(dataloader, desc=f'Epoch {epoch+1}/{num_epochs}')
         
         for batch in pbar:
+            
             # Move batch to device
             batch = batch.to(device)
+            z = batch[:, :128]
             
-            # Create sequences
-            batch_size = batch.size(0)
-            sequences = []
-            targets = []
-            
-            for i in range(batch_size - sequence_length):
-                seq = batch[i:i+sequence_length]
-                target = batch[i+1:i+sequence_length+1, :128]  # Only predict z
-                sequences.append(seq)
-                targets.append(target)
-            
-            if not sequences:
-                continue
-                
-            sequences = torch.stack(sequences)
-            targets = torch.stack(targets)
             
             # Forward pass
-            mdn_params, _ = model(sequences)
+            mdn_params, (_,_) = model(batch)
+            #print(f"Batch shape: {batch.shape}")  # ([2048, 131])
+            #print(f"mdn_params  shape: {mdn_params.shape}") # ([2048, 1921])
+            #print(f"z shape: {z.shape}") # ([2048, 128])
             
             # Calculate loss
-            loss = mdn_loss(mdn_params, targets)
+            loss = mdn_loss(mdn_params, batch) 
             
             # Backward pass
             optimizer.zero_grad()
@@ -180,8 +216,8 @@ if __name__ == '__main__':
     import argparse
     
     parser = argparse.ArgumentParser(description='Train MDN-RNN on collected data')
-    parser.add_argument('--data_dir', type=str, default='data',
-                        help='Directory containing collected data')
+    parser.add_argument('--data_dir', type=str, default='data_mdn_rnn',
+                        help='Directory containing collected data for mdn_rnn model')
     parser.add_argument('--output_dir', type=str, default='models/mdn_rnn',
                         help='Directory to save trained model')
     parser.add_argument('--epochs', type=int, default=50,
@@ -192,10 +228,16 @@ if __name__ == '__main__':
                         help='Learning rate for optimizer')
     parser.add_argument('--weight_decay', type=float, default=1e-5,
                         help='Weight decay for optimizer')
-    parser.add_argument('--sequence_length', type=int, default=16,
-                        help='Length of sequences for training')
     parser.add_argument('--from_checkpoint', type=str, default=None,
                         help='Path to checkpoint to resume training from')
+    parser.add_argument('--input_size', type=int, default=131,
+                        help='Input size for the model')
+    parser.add_argument('--hidden_state_size', type=int, default=256,
+                        help='Hidden state size for the model')
+    parser.add_argument('--num_mixtures', type=int, default=5,
+                        help='Number of mixtures for the model')
+    parser.add_argument('--z_dim', type=int, default=128,
+                        help='Dimension of the latent z for the model')
     args = parser.parse_args()
     
     train_mdn_rnn(
@@ -205,6 +247,9 @@ if __name__ == '__main__':
         batch_size=args.batch_size,
         learning_rate=args.learning_rate,
         weight_decay=args.weight_decay,
-        sequence_length=args.sequence_length,
-        from_checkpoint=args.from_checkpoint
+        from_checkpoint=args.from_checkpoint,
+        input_size=args.input_size,
+        hidden_state_size=args.hidden_state_size,
+        num_mixtures=args.num_mixtures,
+        z_dim=args.z_dim
     ) 

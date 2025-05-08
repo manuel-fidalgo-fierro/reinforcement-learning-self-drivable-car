@@ -129,7 +129,7 @@ python src/data_collectors/mdn_rnn_data_collector.py --output_dir data_mdn_rnn -
 
 Train the MDN-RNN model.
 ```bash
-python src/models/train_mdn_rnn.py --epochs 50 --batch_size 32 --from_checkpoint models/mdn_rnn/mdn_rnn_epoch_10.pt
+python src/models/train_mdn_rnn.py --data_dir data_mdn_rnn --output_dir models/mdn_rnn --epochs 60 --batch_size 2048 --input_size 131 --hidden_state_size 256 --num_mixtures 5 --z_dim 128
 ```
 
 Some images:
